@@ -1,0 +1,13 @@
+[package]
+name = "livewall-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+livewall-control = { path = "../livewall-control" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

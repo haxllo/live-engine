@@ -1,0 +1,16 @@
+[package]
+name = "livewall-service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+livewall-control = { path = "../../crates/livewall-control" }
+livewall-desktop = { path = "../../crates/livewall-desktop" }
+livewall-engine = { path = "../../crates/livewall-engine" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
