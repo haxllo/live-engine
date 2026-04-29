@@ -37,4 +37,9 @@ crate to the concrete workspace member list from the implementation plan.
 - `cargo xtest`
 - `cargo xlint`
 - `cargo xfmt`
+- `cargo run -p livewall-service -- --once`
+- `cargo run -p livewall-service -- --ipc-smoke-test`
+- `cargo test -p livewall-settings`
+- `cargo run -p livewall-settings -- --print-status`
+- `cargo run -p livewall-settings -- --pipe`
 */

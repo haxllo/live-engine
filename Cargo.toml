@@ -16,6 +16,7 @@ workspace = true
 members = [
     ".",
     "apps/livewall-service",
+    "apps/livewall-settings",
     "crates/livewall-control",
     "crates/livewall-pack",
     "crates/livewall-desktop",
@@ -43,8 +44,11 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Media_MediaFoundation",
+    "Win32_Security",
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }

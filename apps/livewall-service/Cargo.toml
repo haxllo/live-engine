@@ -9,8 +9,12 @@ publish = false
 livewall-control = { path = "../../crates/livewall-control" }
 livewall-desktop = { path = "../../crates/livewall-desktop" }
 livewall-engine = { path = "../../crates/livewall-engine" }
+livewall-render = { path = "../../crates/livewall-render" }
 serde_json.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
 
 [lints]
 workspace = true
