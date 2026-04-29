@@ -44,6 +44,7 @@ pub fn create_shared_device() -> Result<RenderDevice, RenderError> {
 
 #[cfg(windows)]
 mod platform {
+    use windows::Win32::Foundation::HMODULE;
     use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
     use windows::Win32::Graphics::Direct3D11::{
         D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_SDK_VERSION,
@@ -62,25 +63,25 @@ mod platform {
             D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
-                None,
+                HMODULE::default(),
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 Some(feature_levels),
                 D3D11_SDK_VERSION,
-                Some(&mut device),
-                Some(&mut chosen_feature_level),
-                Some(&mut context),
+                Some(&mut device as *mut _),
+                Some(&mut chosen_feature_level as *mut _),
+                Some(&mut context as *mut _),
             )
             .or_else(|_| {
                 D3D11CreateDevice(
                     None,
                     D3D_DRIVER_TYPE_HARDWARE,
-                    None,
+                    HMODULE::default(),
                     D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_DEBUG,
                     Some(feature_levels),
                     D3D11_SDK_VERSION,
-                    Some(&mut device),
-                    Some(&mut chosen_feature_level),
-                    Some(&mut context),
+                    Some(&mut device as *mut _),
+                    Some(&mut chosen_feature_level as *mut _),
+                    Some(&mut context as *mut _),
                 )
             })
             .map_err(|error| RenderError::Platform {

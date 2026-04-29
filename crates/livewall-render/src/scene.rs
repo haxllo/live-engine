@@ -134,10 +134,9 @@ impl ScenePipeline {
             device
                 .device
                 .CreateVertexShader(
-                    vertex_shader_bytes.as_ptr().cast(),
-                    vertex_shader_bytes.len(),
+                    &vertex_shader_bytes,
                     None,
-                    Some(&mut vertex_shader),
+                    Some(&mut vertex_shader as *mut _),
                 )
                 .map_err(|error| RenderError::Platform {
                     context: "ID3D11Device::CreateVertexShader",
@@ -146,12 +145,7 @@ impl ScenePipeline {
 
             device
                 .device
-                .CreatePixelShader(
-                    pixel_shader_bytes.as_ptr().cast(),
-                    pixel_shader_bytes.len(),
-                    None,
-                    Some(&mut pixel_shader),
-                )
+                .CreatePixelShader(&pixel_shader_bytes, None, Some(&mut pixel_shader as *mut _))
                 .map_err(|error| RenderError::Platform {
                     context: "ID3D11Device::CreatePixelShader",
                     message: error.to_string(),

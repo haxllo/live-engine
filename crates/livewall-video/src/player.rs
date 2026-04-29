@@ -70,7 +70,7 @@ impl VideoPlayer {
         use std::os::windows::ffi::OsStrExt;
 
         use windows::Win32::Media::MediaFoundation::{
-            IMFAttributes, IMFSourceReader, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+            IMFAttributes, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
             MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_VERSION, MFCreateAttributes,
             MFCreateSourceReaderFromURL, MFStartup,
         };
@@ -109,33 +109,28 @@ impl VideoPlayer {
                 })?;
         }
 
-        let mut path_wide: Vec<u16> = descriptor
+        let path_wide: Vec<u16> = descriptor
             .video_path
             .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
 
-        let mut reader = None::<IMFSourceReader>;
-        unsafe {
+        let reader = unsafe {
             MFCreateSourceReaderFromURL(
-                windows::core::PCWSTR(path_wide.as_mut_ptr()),
+                windows::core::PCWSTR(path_wide.as_ptr()),
                 Some(&attributes),
-                Some(&mut reader),
             )
             .map_err(|error| VideoPlayerError::Platform {
                 context: "MFCreateSourceReaderFromURL",
                 message: error.to_string(),
-            })?;
-        }
+            })?
+        };
 
         Ok(Self {
             clock: PlaybackClock::new(duration, descriptor.loop_mode, fps),
             descriptor,
-            reader: reader.ok_or_else(|| VideoPlayerError::Platform {
-                context: "MFCreateSourceReaderFromURL",
-                message: "source reader handle was not returned".to_string(),
-            })?,
+            reader,
         })
     }
 }

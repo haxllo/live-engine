@@ -36,23 +36,23 @@ pub fn attach_smoke_test(_: Duration) -> Result<(), DesktopError> {
 
 #[cfg(windows)]
 mod platform {
-    use std::sync::OnceLock;
+    use std::time::Duration;
 
-    use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::Foundation::{
+        COLORREF, ERROR_CLASS_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM,
+    };
     use windows::Win32::Graphics::Gdi::{
-        BLACK_BRUSH, BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
-        GetStockObject, HBRUSH, PAINTSTRUCT,
+        BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, InvalidateRect, PAINTSTRUCT,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
         CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-        EnumWindows, FindWindowExW, FindWindowW, GWLP_HINSTANCE, GetWindowLongPtrW, HMENU,
-        IDC_ARROW, InvalidateRect, LoadCursorW, MSG, PeekMessageW, PostQuitMessage, RegisterClassW,
-        SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageTimeoutW, SetWindowPos, ShowWindow,
-        TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROY, WM_PAINT, WNDCLASSW, WS_CHILD,
-        WS_VISIBLE,
+        EnumWindows, FindWindowExW, FindWindowW, IDC_ARROW, LoadCursorW, MSG, PM_REMOVE,
+        PeekMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOW, SWP_NOACTIVATE,
+        SWP_NOZORDER, SendMessageTimeoutW, SetWindowPos, ShowWindow, TranslateMessage,
+        WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROY, WM_PAINT, WNDCLASSW, WS_CHILD, WS_VISIBLE,
     };
-    use windows::core::w;
+    use windows::core::{BOOL, w};
 
     use super::{DesktopHost, WallpaperHostWindow};
     use crate::{DesktopError, MonitorInfo};
@@ -73,12 +73,12 @@ mod platform {
             let hwnd = create_host_window(workerw, monitor)?;
             windows.push(WallpaperHostWindow {
                 monitor_id: monitor.id.clone(),
-                hwnd: hwnd.0,
+                hwnd: hwnd.0 as isize,
             });
         }
 
         Ok(DesktopHost {
-            workerw: workerw.0,
+            workerw: workerw.0 as isize,
             windows,
         })
     }
@@ -89,9 +89,9 @@ mod platform {
 
         for window in &host.windows {
             unsafe {
-                let hwnd = HWND(window.hwnd);
-                InvalidateRect(hwnd, None, true);
-                ShowWindow(hwnd, SW_SHOW);
+                let hwnd = HWND(window.hwnd as *mut core::ffi::c_void);
+                let _ = InvalidateRect(Some(hwnd), None, true);
+                let _ = ShowWindow(hwnd, SW_SHOW);
             }
         }
 
@@ -104,8 +104,8 @@ mod platform {
         fn drop(&mut self) {
             for window in &self.windows {
                 unsafe {
-                    let hwnd = HWND(window.hwnd);
-                    if hwnd.0 != 0 {
+                    let hwnd = HWND(window.hwnd as *mut core::ffi::c_void);
+                    if !hwnd.is_invalid() {
                         let _ = DestroyWindow(hwnd);
                     }
                 }
@@ -114,45 +114,43 @@ mod platform {
     }
 
     fn ensure_window_class() -> Result<(), DesktopError> {
-        static WINDOW_CLASS: OnceLock<()> = OnceLock::new();
-        WINDOW_CLASS.get_or_try_init(|| {
-            let instance = unsafe {
-                GetModuleHandleW(None).map_err(|error| DesktopError::Platform {
-                    context: "GetModuleHandleW",
-                    message: error.to_string(),
-                })?
-            };
+        let instance = unsafe {
+            GetModuleHandleW(None).map_err(|error| DesktopError::Platform {
+                context: "GetModuleHandleW",
+                message: error.to_string(),
+            })?
+        };
 
-            let class = WNDCLASSW {
-                style: CS_HREDRAW | CS_VREDRAW,
-                hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() },
-                hInstance: instance.into(),
-                lpszClassName: LIVEWALL_HOST_CLASS,
-                lpfnWndProc: Some(host_window_proc),
-                ..Default::default()
-            };
+        let class = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() },
+            hInstance: instance.into(),
+            lpszClassName: LIVEWALL_HOST_CLASS,
+            lpfnWndProc: Some(host_window_proc),
+            ..Default::default()
+        };
 
-            let atom = unsafe { RegisterClassW(&class) };
-            if atom == 0 {
+        let atom = unsafe { RegisterClassW(&class) };
+        if atom == 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(ERROR_CLASS_ALREADY_EXISTS.0 as i32) {
                 return Err(DesktopError::Platform {
                     context: "RegisterClassW",
-                    message: std::io::Error::last_os_error().to_string(),
+                    message: error.to_string(),
                 });
             }
+        }
 
-            Ok(())
-        })?;
         Ok(())
     }
 
     fn find_workerw() -> Result<HWND, DesktopError> {
-        let progman = unsafe { FindWindowW(w!("Progman"), None) };
-        if progman.0 == 0 {
-            return Err(DesktopError::Platform {
+        let progman = unsafe {
+            FindWindowW(w!("Progman"), None).map_err(|error| DesktopError::Platform {
                 context: "FindWindowW(Progman)",
-                message: "desktop host window not found".to_string(),
-            });
-        }
+                message: error.to_string(),
+            })?
+        };
 
         unsafe {
             let _ = SendMessageTimeoutW(
@@ -160,7 +158,7 @@ mod platform {
                 PROGMAN_SPAWN_WORKERW,
                 WPARAM(0),
                 LPARAM(0),
-                Default::default(),
+                SMTO_NORMAL,
                 1000,
                 None,
             );
@@ -173,10 +171,11 @@ mod platform {
         unsafe extern "system" fn enum_windows_proc(window: HWND, lparam: LPARAM) -> BOOL {
             let state = unsafe { &mut *(lparam.0 as *mut SearchState) };
             let shell_view =
-                unsafe { FindWindowExW(window, HWND(0), w!("SHELLDLL_DefView"), None) };
-            if shell_view.0 != 0 {
-                let workerw = unsafe { FindWindowExW(HWND(0), window, w!("WorkerW"), None) };
-                if workerw.0 != 0 {
+                unsafe { FindWindowExW(Some(window), None, w!("SHELLDLL_DefView"), None).ok() };
+            if shell_view.is_some() {
+                let workerw =
+                    unsafe { FindWindowExW(None, Some(window), w!("WorkerW"), None).ok() };
+                if let Some(workerw) = workerw {
                     state.workerw = Some(workerw);
                     return false.into();
                 }
@@ -189,7 +188,11 @@ mod platform {
             EnumWindows(
                 Some(enum_windows_proc),
                 LPARAM((&mut state as *mut SearchState).cast::<()>() as isize),
-            );
+            )
+            .map_err(|error| DesktopError::Platform {
+                context: "EnumWindows(WorkerW)",
+                message: error.to_string(),
+            })?;
         }
 
         state.workerw.ok_or_else(|| DesktopError::Platform {
@@ -220,25 +223,22 @@ mod platform {
                 bounds.top,
                 width,
                 height,
-                workerw,
-                HMENU(0),
-                instance,
+                Some(workerw),
+                None,
+                Some(instance.into()),
                 None,
             )
+            .map_err(|error| DesktopError::Platform {
+                context: "CreateWindowExW",
+                message: error.to_string(),
+            })?
         };
 
-        if hwnd.0 == 0 {
-            return Err(DesktopError::Platform {
-                context: "CreateWindowExW",
-                message: std::io::Error::last_os_error().to_string(),
-            });
-        }
-
         unsafe {
-            ShowWindow(hwnd, SW_SHOW);
+            let _ = ShowWindow(hwnd, SW_SHOW);
             let _ = SetWindowPos(
                 hwnd,
-                HWND(0),
+                None,
                 bounds.left,
                 bounds.top,
                 width,
@@ -255,8 +255,8 @@ mod platform {
         while std::time::Instant::now() < deadline {
             unsafe {
                 let mut message = MSG::default();
-                while PeekMessageW(&mut message, HWND(0), 0, 0, 1).as_bool() {
-                    TranslateMessage(&message);
+                while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
             }
@@ -277,8 +277,8 @@ mod platform {
                 let brush = unsafe { CreateSolidBrush(COLORREF(0)) };
                 unsafe {
                     let _ = FillRect(hdc, &paint.rcPaint, brush);
-                    let _ = DeleteObject(brush);
-                    EndPaint(hwnd, &paint);
+                    let _ = DeleteObject(brush.into());
+                    let _ = EndPaint(hwnd, &paint);
                 }
                 LRESULT(0)
             }

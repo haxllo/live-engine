@@ -87,12 +87,15 @@ pub fn enumerate_monitors() -> Result<Vec<MonitorInfo>, DesktopError> {
 
 #[cfg(windows)]
 mod platform {
-    use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+    use std::mem::size_of;
+
+    use windows::Win32::Foundation::{LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
-        MONITORINFOF_PRIMARY,
     };
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
+    use windows::core::BOOL;
 
     use super::{MonitorInfo, RectI32, normalize_monitors};
     use crate::DesktopError;
@@ -155,7 +158,7 @@ mod platform {
 
     fn read_monitor_info(hmonitor: HMONITOR) -> Result<MonitorInfo, DesktopError> {
         let mut monitor_info = MONITORINFOEXW::default();
-        monitor_info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        monitor_info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
 
         unsafe {
             GetMonitorInfoW(
@@ -180,7 +183,7 @@ mod platform {
         Ok(MonitorInfo {
             id: id.clone(),
             display_name: id,
-            is_primary: (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY as u32) != 0,
+            is_primary: (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0,
             bounds_px: RectI32::new(monitor.left, monitor.top, monitor.right, monitor.bottom),
             work_area_px: RectI32::new(
                 work_area.left,
