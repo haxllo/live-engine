@@ -46,6 +46,7 @@ crate to the concrete workspace member list from the implementation plan.
 - `cargo test -p livewall-settings`
 - `cargo run -p livewall-settings -- --print-status`
 - `cargo run -p livewall-settings -- --pipe`
+- `cargo run -p livewall-settings -- --pipe-watch [interval_ms]`
 - `powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1`
 - `powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1`
 

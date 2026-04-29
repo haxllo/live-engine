@@ -336,10 +336,12 @@ impl NamedPipeControlClient {
                 }
             }
 
-            let response_json =
-                String::from_utf8(response_bytes).map_err(|error| SettingsAppError::Transport(
-                    format!("response from `{}` is not valid UTF-8: {error}", self.pipe_path),
-                ))?;
+            let response_json = String::from_utf8(response_bytes).map_err(|error| {
+                SettingsAppError::Transport(format!(
+                    "response from `{}` is not valid UTF-8: {error}",
+                    self.pipe_path
+                ))
+            })?;
             if response_json.trim().is_empty() {
                 return Err(SettingsAppError::Transport(format!(
                     "service returned an empty response on `{}`",

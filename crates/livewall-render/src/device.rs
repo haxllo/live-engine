@@ -12,6 +12,7 @@ pub struct RenderDevice {
     #[cfg(windows)]
     pub(crate) device: windows::Win32::Graphics::Direct3D11::ID3D11Device,
     #[cfg(windows)]
+    #[cfg_attr(windows, allow(dead_code))]
     pub(crate) context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
 }
 

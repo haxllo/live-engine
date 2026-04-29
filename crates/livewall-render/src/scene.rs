@@ -51,8 +51,10 @@ pub struct SceneUniforms {
 pub struct ScenePipeline {
     pub descriptor: SceneDescriptor,
     #[cfg(windows)]
+    #[cfg_attr(windows, allow(dead_code))]
     pub(crate) vertex_shader: windows::Win32::Graphics::Direct3D11::ID3D11VertexShader,
     #[cfg(windows)]
+    #[cfg_attr(windows, allow(dead_code))]
     pub(crate) pixel_shader: windows::Win32::Graphics::Direct3D11::ID3D11PixelShader,
 }
 

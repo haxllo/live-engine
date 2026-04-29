@@ -1,5 +1,8 @@
 mod app;
 
+use std::thread;
+use std::time::Duration;
+
 use app::{
     InMemoryControlClient, LiveWallSettingsApp, NamedPipeControlClient, sample_status_snapshot,
 };
@@ -19,6 +22,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let app = LiveWallSettingsApp::bootstrap(client)?;
             println!("{}", serde_json::to_string_pretty(app.snapshot())?);
         }
+        Some("--pipe-watch") => {
+            let interval_ms = args
+                .next()
+                .map(|value| value.parse::<u64>())
+                .transpose()?
+                .unwrap_or(1_000);
+            run_pipe_watch(Duration::from_millis(interval_ms))?;
+        }
         Some("--print-status") | None => {
             let client = InMemoryControlClient::new(sample_status_snapshot());
             let app = LiveWallSettingsApp::bootstrap(client)?;
@@ -30,4 +41,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn run_pipe_watch(interval: Duration) -> Result<(), Box<dyn std::error::Error>> {
+    let client = NamedPipeControlClient::default();
+    let mut app = LiveWallSettingsApp::bootstrap(client)?;
+
+    loop {
+        println!("{}", serde_json::to_string_pretty(app.snapshot())?);
+        thread::sleep(interval);
+        app.refresh()?;
+    }
 }

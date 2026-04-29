@@ -19,6 +19,7 @@ pub struct VideoPlayer {
     pub descriptor: VideoDescriptor,
     pub clock: PlaybackClock,
     #[cfg(windows)]
+    #[cfg_attr(windows, allow(dead_code))]
     pub(crate) reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
 }
 
