@@ -9,7 +9,9 @@ publish = false
 livewall-control = { path = "../../crates/livewall-control" }
 livewall-desktop = { path = "../../crates/livewall-desktop" }
 livewall-engine = { path = "../../crates/livewall-engine" }
+livewall-pack = { path = "../../crates/livewall-pack" }
 livewall-render = { path = "../../crates/livewall-render" }
+livewall-video = { path = "../../crates/livewall-video" }
 serde_json.workspace = true
 thiserror.workspace = true
 

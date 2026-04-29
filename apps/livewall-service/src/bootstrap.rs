@@ -16,16 +16,22 @@ use livewall_render::{RenderDevice, RenderError, create_shared_device};
 use thiserror::Error;
 
 #[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, RPC_E_CHANGED_MODE};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_PIPE_CONNECTED, GetLastError, HANDLE,
+    INVALID_HANDLE_VALUE, RPC_E_CHANGED_MODE,
+};
 #[cfg(windows)]
 use windows::Win32::Media::MediaFoundation::{MF_VERSION, MFShutdown, MFStartup};
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
+use windows::Win32::Storage::FileSystem::{
+    FILE_FLAG_FIRST_PIPE_INSTANCE, FlushFileBuffers, PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
+};
 #[cfg(windows)]
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{
-    CreateNamedPipeW, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
+    PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 #[cfg(windows)]
 use windows::core::PCWSTR;
@@ -228,6 +234,52 @@ impl LiveWallService {
         let response = self.handle_envelope(envelope);
         Ok(serde_json::to_string(&response)?)
     }
+
+    pub fn serve_once(&mut self) -> Result<(), ServiceBootstrapError> {
+        self.runtime.ipc_server.connect_client()?;
+        let outcome = self.serve_connected_client();
+        self.runtime.ipc_server.disconnect_client();
+        outcome
+    }
+
+    pub fn serve(&mut self) -> Result<(), ServiceBootstrapError> {
+        self.runtime
+            .logger
+            .info("runtime", "service IPC loop started")?;
+        loop {
+            self.runtime.ipc_server.connect_client()?;
+            let outcome = self.serve_connected_client();
+            self.runtime.ipc_server.disconnect_client();
+            if let Err(error) = outcome {
+                self.runtime
+                    .logger
+                    .info("runtime", format!("request handling error: {error}"))?;
+            }
+        }
+    }
+
+    fn serve_connected_client(&mut self) -> Result<(), ServiceBootstrapError> {
+        let request_json = self.runtime.ipc_server.read_message()?;
+        let response_json = self.handle_request_json(&request_json);
+        self.runtime.ipc_server.write_message(&response_json)?;
+        Ok(())
+    }
+
+    fn handle_request_json(&mut self, request_json: &str) -> String {
+        match self.handle_json_request(request_json) {
+            Ok(response_json) => response_json,
+            Err(error) => {
+                let envelope = ResponseEnvelope::error(
+                    0,
+                    ControlError::new(ControlErrorCode::InvalidCommand, error.to_string()),
+                );
+                match serde_json::to_string(&envelope) {
+                    Ok(json) => json,
+                    Err(_) => "{\"protocol_version\":1,\"request_id\":0,\"response\":{\"type\":\"error\",\"payload\":{\"code\":\"service_unavailable\",\"message\":\"response serialization failure\",\"expected_protocol_version\":null,\"actual_protocol_version\":null}}}".to_string(),
+                }
+            }
+        }
+    }
 }
 
 impl Drop for LiveWallService {
@@ -280,8 +332,7 @@ fn load_monitors_with(
                 native_monitors: Some(monitors),
             })
         }
-        Err(error) if should_fallback_to_synthetic_monitor(&options, &error) =>
-        {
+        Err(error) if should_fallback_to_synthetic_monitor(&options, &error) => {
             Ok(LoadedMonitors {
                 statuses: vec![synthetic_monitor()],
                 native_monitors: None,
@@ -368,6 +419,162 @@ impl ServiceIpcServer {
 
     fn pipe_path(&self) -> &str {
         &self.pipe_path
+    }
+
+    fn connect_client(&mut self) -> Result<(), ServiceBootstrapError> {
+        #[cfg(windows)]
+        {
+            match unsafe { ConnectNamedPipe(self.pipe_handle, None) } {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let code = unsafe { GetLastError() };
+                    if code == ERROR_PIPE_CONNECTED {
+                        return Ok(());
+                    }
+                    return Err(ServiceBootstrapError::Platform {
+                        context: "ConnectNamedPipe",
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            Err(ServiceBootstrapError::IpcConfig(
+                "named pipes are only available on Windows".into(),
+            ))
+        }
+    }
+
+    fn read_message(&mut self) -> Result<String, ServiceBootstrapError> {
+        #[cfg(windows)]
+        {
+            const CHUNK_SIZE: usize = 4096;
+            let mut message = Vec::new();
+            let mut chunk = [0_u8; CHUNK_SIZE];
+
+            loop {
+                let mut bytes_read = 0_u32;
+                match unsafe {
+                    ReadFile(
+                        self.pipe_handle,
+                        Some(chunk.as_mut_slice()),
+                        Some(&mut bytes_read),
+                        None,
+                    )
+                } {
+                    Ok(()) => {
+                        if bytes_read == 0 {
+                            break;
+                        }
+                        message.extend_from_slice(&chunk[..bytes_read as usize]);
+                        break;
+                    }
+                    Err(error) => {
+                        let code = unsafe { GetLastError() };
+                        if code == ERROR_MORE_DATA {
+                            if bytes_read != 0 {
+                                message.extend_from_slice(&chunk[..bytes_read as usize]);
+                            }
+                            continue;
+                        }
+
+                        if code == ERROR_BROKEN_PIPE {
+                            return Err(ServiceBootstrapError::Platform {
+                                context: "ReadFile",
+                                message: "client disconnected before sending a request".into(),
+                            });
+                        }
+
+                        return Err(ServiceBootstrapError::Platform {
+                            context: "ReadFile",
+                            message: error.to_string(),
+                        });
+                    }
+                }
+            }
+
+            if message.is_empty() {
+                return Err(ServiceBootstrapError::IpcConfig(
+                    "received empty request from named pipe client".into(),
+                ));
+            }
+
+            return String::from_utf8(message).map_err(|error| {
+                ServiceBootstrapError::IpcConfig(format!(
+                    "request payload is not valid UTF-8: {error}"
+                ))
+            });
+        }
+
+        #[cfg(not(windows))]
+        {
+            Err(ServiceBootstrapError::IpcConfig(
+                "named pipes are only available on Windows".into(),
+            ))
+        }
+    }
+
+    fn write_message(&mut self, message: &str) -> Result<(), ServiceBootstrapError> {
+        #[cfg(windows)]
+        {
+            let bytes = message.as_bytes();
+            let mut total_written = 0_usize;
+            while total_written < bytes.len() {
+                let mut bytes_written = 0_u32;
+                match unsafe {
+                    WriteFile(
+                        self.pipe_handle,
+                        Some(&bytes[total_written..]),
+                        Some(&mut bytes_written),
+                        None,
+                    )
+                } {
+                    Ok(()) => {}
+                    Err(error) => {
+                        return Err(ServiceBootstrapError::Platform {
+                            context: "WriteFile",
+                            message: error.to_string(),
+                        });
+                    }
+                }
+
+                if bytes_written == 0 {
+                    return Err(ServiceBootstrapError::Platform {
+                        context: "WriteFile",
+                        message: "wrote zero bytes to named pipe".into(),
+                    });
+                }
+
+                total_written += bytes_written as usize;
+            }
+
+            unsafe {
+                FlushFileBuffers(self.pipe_handle).map_err(|error| {
+                    ServiceBootstrapError::Platform {
+                        context: "FlushFileBuffers",
+                        message: error.to_string(),
+                    }
+                })?;
+            };
+            return Ok(());
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = message;
+            Err(ServiceBootstrapError::IpcConfig(
+                "named pipes are only available on Windows".into(),
+            ))
+        }
+    }
+
+    fn disconnect_client(&mut self) {
+        #[cfg(windows)]
+        unsafe {
+            let _ = DisconnectNamedPipe(self.pipe_handle);
+        }
     }
 }
 
@@ -638,6 +845,22 @@ mod tests {
         match response.response {
             Response::Ok { status } => assert!(status.is_some()),
             Response::Error { error } => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_json_request_returns_invalid_command_error() {
+        let mut service = LiveWallService::bootstrap(ServiceOptions::default(), Vec::new())
+            .expect("service should bootstrap");
+        let response_json = service.handle_request_json("{not-valid-json");
+        let response: livewall_control::ResponseEnvelope =
+            serde_json::from_str(&response_json).expect("response should deserialize");
+
+        match response.response {
+            Response::Error { error } => {
+                assert_eq!(error.code, ControlErrorCode::InvalidCommand);
+            }
+            Response::Ok { .. } => panic!("expected invalid command error"),
         }
     }
 }

@@ -1,0 +1,9 @@
+{
+  "id": "coast-video",
+  "version": 1,
+  "title": "Coast",
+  "preview": "preview.jpg",
+  "kind": "video",
+  "entry": "video.mp4",
+  "loop_mode": "loop"
+}

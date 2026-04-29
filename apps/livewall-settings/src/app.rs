@@ -1,6 +1,12 @@
+#[cfg(windows)]
+use std::fs::OpenOptions;
+#[cfg(windows)]
+use std::io::{Read, Write};
+
 use livewall_control::{
-    Command, ControlError, ControlErrorCode, HealthReport, MonitorStatus, PerformanceMode,
-    PlaybackState, ServiceState, StartupStatus, StatusSnapshot, WallpaperKind, WallpaperSummary,
+    Command, CommandEnvelope, ControlError, ControlErrorCode, HealthReport, MonitorStatus,
+    PerformanceMode, PlaybackState, Response, ResponseEnvelope, ServiceState, StartupStatus,
+    StatusSnapshot, WallpaperKind, WallpaperSummary,
 };
 use thiserror::Error;
 
@@ -264,6 +270,7 @@ impl ControlClient for InMemoryControlClient {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedPipeControlClient {
     pipe_path: String,
+    next_request_id: u64,
 }
 
 impl NamedPipeControlClient {
@@ -271,6 +278,66 @@ impl NamedPipeControlClient {
     pub fn new(pipe_path: impl Into<String>) -> Self {
         Self {
             pipe_path: pipe_path.into(),
+            next_request_id: 1,
+        }
+    }
+
+    fn next_request_id(&mut self) -> u64 {
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.saturating_add(1);
+        request_id
+    }
+
+    fn send_request(&self, request_json: &str) -> Result<String, SettingsAppError> {
+        #[cfg(windows)]
+        {
+            let mut pipe = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.pipe_path)
+                .map_err(|error| {
+                    SettingsAppError::Transport(format!(
+                        "failed to open named pipe `{}`: {error}",
+                        self.pipe_path
+                    ))
+                })?;
+
+            pipe.write_all(request_json.as_bytes()).map_err(|error| {
+                SettingsAppError::Transport(format!(
+                    "failed to write request to `{}`: {error}",
+                    self.pipe_path
+                ))
+            })?;
+            pipe.flush().map_err(|error| {
+                SettingsAppError::Transport(format!(
+                    "failed to flush request to `{}`: {error}",
+                    self.pipe_path
+                ))
+            })?;
+
+            let mut response_json = String::new();
+            pipe.read_to_string(&mut response_json).map_err(|error| {
+                SettingsAppError::Transport(format!(
+                    "failed to read response from `{}`: {error}",
+                    self.pipe_path
+                ))
+            })?;
+            if response_json.trim().is_empty() {
+                return Err(SettingsAppError::Transport(format!(
+                    "service returned an empty response on `{}`",
+                    self.pipe_path
+                )));
+            }
+            return Ok(response_json);
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = request_json;
+            Err(SettingsAppError::Transport(format!(
+                "named pipe transport is only available on Windows (`{}`)",
+                self.pipe_path
+            )))
         }
     }
 }
@@ -289,12 +356,29 @@ impl ControlClient for NamedPipeControlClient {
 
     fn send_command(
         &mut self,
-        _command: Command,
+        command: Command,
     ) -> Result<Option<StatusSnapshot>, SettingsAppError> {
-        Err(SettingsAppError::Transport(format!(
-            "named pipe transport is not connected for `{}`",
-            self.pipe_path
-        )))
+        let request_id = self.next_request_id();
+        let request_json = serde_json::to_string(&CommandEnvelope::new(request_id, command))
+            .map_err(|error| {
+                SettingsAppError::Transport(format!("request serialization failed: {error}"))
+            })?;
+        let response_json = self.send_request(&request_json)?;
+        let response: ResponseEnvelope = serde_json::from_str(&response_json).map_err(|error| {
+            SettingsAppError::Transport(format!("response deserialization failed: {error}"))
+        })?;
+
+        if response.request_id != request_id {
+            return Err(SettingsAppError::Transport(format!(
+                "response request_id mismatch: expected {request_id}, received {}",
+                response.request_id
+            )));
+        }
+
+        match response.response {
+            Response::Ok { status } => Ok(status),
+            Response::Error { error } => Err(SettingsAppError::from_control(error)),
+        }
     }
 }
 
@@ -332,13 +416,13 @@ pub fn sample_status_snapshot() -> StatusSnapshot {
                 wallpaper_id: "coast-video".into(),
                 title: "Coast".into(),
                 kind: WallpaperKind::Video,
-                preview_path: Some("samples/coast/preview.jpg".into()),
+                preview_path: Some("wallpapers/samples/coast-video/preview.jpg".into()),
             },
             WallpaperSummary {
                 wallpaper_id: "aurora-scene".into(),
                 title: "Aurora".into(),
                 kind: WallpaperKind::Scene,
-                preview_path: Some("samples/aurora/preview.jpg".into()),
+                preview_path: Some("wallpapers/samples/aurora-scene/preview.jpg".into()),
             },
         ],
         ..StatusSnapshot::default()

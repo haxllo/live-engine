@@ -38,8 +38,22 @@ crate to the concrete workspace member list from the implementation plan.
 - `cargo xlint`
 - `cargo xfmt`
 - `cargo run -p livewall-service -- --once`
+- `cargo run -p livewall-service -- --serve`
+- `cargo run -p livewall-service -- --serve-once`
 - `cargo run -p livewall-service -- --ipc-smoke-test`
+- `cargo run -p livewall-service -- --scene-smoke-test`
+- `cargo run -p livewall-service -- --video-smoke-test`
 - `cargo test -p livewall-settings`
 - `cargo run -p livewall-settings -- --print-status`
 - `cargo run -p livewall-settings -- --pipe`
+- `powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1`
+- `powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1`
+
+## Runtime Flow
+
+- Start the service loop: `cargo run -p livewall-service -- --serve`
+- Query over named pipe: `cargo run -p livewall-settings -- --pipe`
+
+The service loop uses blocking named-pipe I/O to avoid busy waiting and keep
+idle CPU usage low.
 */

@@ -99,3 +99,27 @@ LiveWall v1 should optimize for:
 
 That is the main architectural difference from a broader "everything runtime"
 approach.
+
+## Runtime Reliability and Degraded Mode
+
+Some Windows systems cannot provide the full desktop/runtime stack (for example,
+missing `WorkerW` host discovery or unsupported D3D11 feature levels). The
+service should keep operating in degraded mode instead of crashing:
+
+- synthesize a monitor snapshot when desktop integration is unavailable
+- continue startup when D3D11 initialization fails and synthetic mode is enabled
+- keep IPC online so settings and diagnostics remain usable
+
+This keeps the control plane responsive while making rendering capability
+failures explicit in logs.
+
+## IPC Performance Model
+
+Service IPC uses blocking named-pipe request/response handling:
+
+- no polling loops in idle state
+- one connected client request handled at a time
+- explicit disconnect after each response to keep the protocol simple
+
+Blocking I/O here is intentional; it minimizes CPU wakeups and avoids
+background spin while still providing immediate command handling.

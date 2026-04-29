@@ -1,0 +1,9 @@
+{
+  "id": "aurora-scene",
+  "version": 1,
+  "title": "Aurora",
+  "preview": "preview.jpg",
+  "kind": "scene",
+  "vertex_shader": "shaders/fullscreen.vs.cso",
+  "pixel_shader": "shaders/aurora.ps.cso"
+}
