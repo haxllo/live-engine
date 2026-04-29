@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use livewall_control::{Command, MonitorStatus, PlaybackState, StatusSnapshot, WallpaperSummary};
-use livewall_desktop::{DesktopError, attach_smoke_test, enumerate_monitors};
+use livewall_desktop::{DesktopError, MonitorInfo, attach_smoke_test, enumerate_monitors};
 use livewall_engine::RuntimeCoordinator;
 use thiserror::Error;
 
@@ -66,7 +66,14 @@ pub fn run_desktop_smoke_test() -> Result<(), ServiceBootstrapError> {
 }
 
 fn load_monitors(options: ServiceOptions) -> Result<Vec<MonitorStatus>, ServiceBootstrapError> {
-    match enumerate_monitors() {
+    load_monitors_with(options, enumerate_monitors)
+}
+
+fn load_monitors_with(
+    options: ServiceOptions,
+    enumerate: fn() -> Result<Vec<MonitorInfo>, DesktopError>,
+) -> Result<Vec<MonitorStatus>, ServiceBootstrapError> {
+    match enumerate() {
         Ok(monitors) => Ok(monitors
             .into_iter()
             .map(|monitor| MonitorStatus {
@@ -98,17 +105,30 @@ fn synthetic_monitor() -> MonitorStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::{LiveWallService, ServiceOptions};
+    use super::{LiveWallService, ServiceOptions, load_monitors_with};
     use livewall_control::{Command, PlaybackState};
+    use livewall_desktop::{DesktopError, MonitorInfo};
 
     #[test]
-    fn bootstrap_uses_synthetic_monitor_when_desktop_is_unavailable() {
+    fn bootstrap_initializes_with_available_monitors() {
         let service = LiveWallService::bootstrap(ServiceOptions::default(), Vec::new())
             .expect("service should bootstrap");
 
         let snapshot = service.snapshot();
-        assert_eq!(snapshot.monitors.len(), 1);
-        assert_eq!(snapshot.monitors[0].monitor_id, "SIMULATED_DISPLAY1");
+        assert!(!snapshot.monitors.is_empty());
+    }
+
+    #[test]
+    fn load_monitors_uses_synthetic_monitor_when_desktop_is_unavailable() {
+        fn unsupported_desktop() -> Result<Vec<MonitorInfo>, DesktopError> {
+            Err(DesktopError::UnsupportedPlatform)
+        }
+
+        let monitors = load_monitors_with(ServiceOptions::default(), unsupported_desktop)
+            .expect("service should synthesize a monitor");
+
+        assert_eq!(monitors.len(), 1);
+        assert_eq!(monitors[0].monitor_id, "SIMULATED_DISPLAY1");
     }
 
     #[test]
