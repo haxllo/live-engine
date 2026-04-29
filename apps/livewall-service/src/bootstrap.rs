@@ -114,6 +114,13 @@ impl LiveWallService {
                 logger.info("startup", "D3D11 shared device initialized")?;
                 Some(device)
             }
+            Err(RenderError::Platform { .. }) if options.allow_synthetic_monitor => {
+                logger.info(
+                    "startup",
+                    "D3D11 initialization failed; continuing in degraded mode",
+                )?;
+                None
+            }
             Err(RenderError::UnsupportedPlatform) if options.allow_synthetic_monitor => {
                 logger.info(
                     "startup",
