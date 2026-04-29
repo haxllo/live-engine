@@ -315,13 +315,31 @@ impl NamedPipeControlClient {
                 ))
             })?;
 
-            let mut response_json = String::new();
-            pipe.read_to_string(&mut response_json).map_err(|error| {
-                SettingsAppError::Transport(format!(
-                    "failed to read response from `{}`: {error}",
-                    self.pipe_path
-                ))
-            })?;
+            let mut response_bytes = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                match pipe.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(bytes_read) => response_bytes.extend_from_slice(&chunk[..bytes_read]),
+                    Err(error)
+                        if is_windows_pipe_end_of_response(&error)
+                            && !response_bytes.is_empty() =>
+                    {
+                        break;
+                    }
+                    Err(error) => {
+                        return Err(SettingsAppError::Transport(format!(
+                            "failed to read response from `{}`: {error}",
+                            self.pipe_path
+                        )));
+                    }
+                }
+            }
+
+            let response_json =
+                String::from_utf8(response_bytes).map_err(|error| SettingsAppError::Transport(
+                    format!("response from `{}` is not valid UTF-8: {error}", self.pipe_path),
+                ))?;
             if response_json.trim().is_empty() {
                 return Err(SettingsAppError::Transport(format!(
                     "service returned an empty response on `{}`",
@@ -340,6 +358,11 @@ impl NamedPipeControlClient {
             )))
         }
     }
+}
+
+#[cfg(windows)]
+fn is_windows_pipe_end_of_response(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(109 | 232 | 233))
 }
 
 impl Default for NamedPipeControlClient {
