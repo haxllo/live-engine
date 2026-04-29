@@ -133,14 +133,23 @@ impl LiveWallService {
 
         let loaded_monitors = load_monitors(options.clone())?;
         let desktop_host = match loaded_monitors.native_monitors.as_ref() {
-            Some(monitors) => {
-                let host = attach_wallpaper_hosts(monitors)?;
-                logger.info(
-                    "startup",
-                    format!("attached wallpaper hosts for {} monitors", monitors.len()),
-                )?;
-                Some(host)
-            }
+            Some(monitors) => match attach_wallpaper_hosts(monitors) {
+                Ok(host) => {
+                    logger.info(
+                        "startup",
+                        format!("attached wallpaper hosts for {} monitors", monitors.len()),
+                    )?;
+                    Some(host)
+                }
+                Err(error) if should_fallback_to_synthetic_monitor(&options, &error) => {
+                    logger.info(
+                        "startup",
+                        format!("desktop host unavailable; continuing in degraded mode: {error}"),
+                    )?;
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            },
             None => {
                 logger.info("startup", "using synthetic monitor mode")?;
                 None
@@ -271,8 +280,7 @@ fn load_monitors_with(
                 native_monitors: Some(monitors),
             })
         }
-        Err(DesktopError::UnsupportedPlatform | DesktopError::NoMonitors | DesktopError::Platform { .. })
-            if options.allow_synthetic_monitor =>
+        Err(error) if should_fallback_to_synthetic_monitor(&options, &error) =>
         {
             Ok(LoadedMonitors {
                 statuses: vec![synthetic_monitor()],
@@ -281,6 +289,16 @@ fn load_monitors_with(
         }
         Err(error) => Err(ServiceBootstrapError::Desktop(error)),
     }
+}
+
+fn should_fallback_to_synthetic_monitor(options: &ServiceOptions, error: &DesktopError) -> bool {
+    options.allow_synthetic_monitor
+        && matches!(
+            error,
+            DesktopError::UnsupportedPlatform
+                | DesktopError::NoMonitors
+                | DesktopError::Platform { .. }
+        )
 }
 
 fn synthetic_monitor() -> MonitorStatus {
@@ -500,7 +518,9 @@ fn service_log_dir() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{LiveWallService, ServiceOptions, load_monitors_with};
+    use super::{
+        LiveWallService, ServiceOptions, load_monitors_with, should_fallback_to_synthetic_monitor,
+    };
     use livewall_control::{
         Command, CommandEnvelope, ControlErrorCode, PROTOCOL_VERSION, PlaybackState, Response,
     };
@@ -528,6 +548,25 @@ mod tests {
         assert_eq!(loaded.statuses.len(), 1);
         assert_eq!(loaded.statuses[0].monitor_id, "SIMULATED_DISPLAY1");
         assert!(loaded.native_monitors.is_none());
+    }
+
+    #[test]
+    fn synthetic_fallback_supports_platform_errors() {
+        let error = DesktopError::Platform {
+            context: "EnumWindows(WorkerW)",
+            message: "WorkerW host window not found".into(),
+        };
+
+        assert!(should_fallback_to_synthetic_monitor(
+            &ServiceOptions::default(),
+            &error
+        ));
+
+        let options = ServiceOptions {
+            allow_synthetic_monitor: false,
+            ..ServiceOptions::default()
+        };
+        assert!(!should_fallback_to_synthetic_monitor(&options, &error));
     }
 
     #[test]
