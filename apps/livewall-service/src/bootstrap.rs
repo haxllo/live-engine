@@ -271,7 +271,9 @@ fn load_monitors_with(
                 native_monitors: Some(monitors),
             })
         }
-        Err(DesktopError::UnsupportedPlatform) if options.allow_synthetic_monitor => {
+        Err(DesktopError::UnsupportedPlatform | DesktopError::NoMonitors | DesktopError::Platform { .. })
+            if options.allow_synthetic_monitor =>
+        {
             Ok(LoadedMonitors {
                 statuses: vec![synthetic_monitor()],
                 native_monitors: None,
