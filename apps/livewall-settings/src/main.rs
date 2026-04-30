@@ -1,4 +1,5 @@
 mod app;
+mod ui;
 
 use std::thread;
 use std::time::Duration;
@@ -17,6 +18,11 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
+        Some("--ui") => {
+            let client = NamedPipeControlClient::default();
+            let app = LiveWallSettingsApp::bootstrap(client)?;
+            ui::run_ui(app)?;
+        }
         Some("--pipe") => {
             let client = NamedPipeControlClient::default();
             let app = LiveWallSettingsApp::bootstrap(client)?;

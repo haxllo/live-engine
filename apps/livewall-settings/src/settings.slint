@@ -1,0 +1,196 @@
+import { StandardButton, ComboBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct Wallpaper {
+    id: string,
+    title: string,
+    kind: string,
+}
+
+export struct Monitor {
+    id: string,
+    display_name: string,
+    is_primary: bool,
+    wallpaper_id: string,
+}
+
+export global SettingsState {
+    in-out property <[Wallpaper]> library: [];
+    in-out property <[Monitor]> monitors: [];
+    in-out property <int> selected-monitor-index: 0;
+    in-out property <string> performance-mode: "balanced";
+    in-out property <bool> startup-enabled: false;
+    in-out property <bool> is-playing: true;
+    in-out property <string> health-message: "Connecting...";
+    
+    callback set-wallpaper(int, int);
+    callback toggle-playback();
+    callback set-performance-mode(string);
+    callback toggle-startup();
+}
+
+component ApplyButton {
+    in property <string> label: "Apply";
+    callback clicked();
+    
+    Rectangle {
+        background: #0078D4;
+        border-radius: 4px;
+        width: 70px;
+        height: 32px;
+        Text {
+            text: label;
+            color: white;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "LiveWall Settings";
+    width: 800px;
+    height: 600px;
+    
+    VerticalBox {
+        padding: 16px;
+        
+        HorizontalBox {
+            spacing: 8px;
+            Text {
+                text: "LiveWall";
+                font-size: 18px;
+                font-weight: 700;
+            }
+            Rectangle {
+                background: SettingsState.health-message == "Connected" ? #4CAF50 : #FF9800;
+                border-radius: 4px;
+                width: 150px;
+                height: 24px;
+                Text {
+                    text: SettingsState.health-message;
+                    font-size: 10px;
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        
+        HorizontalBox {
+            spacing: 16px;
+            
+            VerticalBox {
+                width: 70%;
+                Text {
+                    text: "Wallpapers";
+                    font-weight: 700;
+                }
+                ScrollView {
+                    VerticalBox {
+                        spacing: 4px;
+                        for wp in SettingsState.library : HorizontalBox {
+                            spacing: 8px;
+                            height: 50px;
+                            VerticalBox {
+                                Text {
+                                    text: wp.title;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    text: wp.kind;
+                                    font-size: 10px;
+                                }
+                            }
+                            ApplyButton {
+                                clicked => {
+                                    SettingsState.set-wallpaper(SettingsState.selected-monitor-index, 0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            VerticalBox {
+                width: 30%;
+                spacing: 12px;
+                
+                Text {
+                    text: "Monitor";
+                    font-weight: 700;
+                }
+                ComboBox {
+                    model: ["Monitor 1", "Monitor 2"];
+                    current-index: SettingsState.selected-monitor-index;
+                }
+                
+                Text {
+                    text: "Playback";
+                    font-weight: 700;
+                }
+                Rectangle {
+                    background: #0078D4;
+                    border-radius: 4px;
+                    height: 32px;
+                    width: 100%;
+                    Text {
+                        text: SettingsState.is-playing ? "Pause" : "Resume";
+                        color: white;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => {
+                            SettingsState.toggle-playback();
+                        }
+                    }
+                }
+                
+                Text {
+                    text: "Performance";
+                    font-weight: 700;
+                }
+                ComboBox {
+                    model: ["Quality", "Balanced", "Battery Saver"];
+                    current-value: SettingsState.performance-mode;
+                    selected(v) => {
+                        SettingsState.set-performance-mode(v);
+                    }
+                }
+                
+                Text {
+                    text: "Startup";
+                    font-weight: 700;
+                }
+                Rectangle {
+                    background: SettingsState.startup-enabled ? #4CAF50 : #ddd;
+                    border-radius: 4px;
+                    height: 30px;
+                    width: 100%;
+                    Text {
+                        text: SettingsState.startup-enabled ? "✓ Enabled" : "Disabled";
+                        color: SettingsState.startup-enabled ? white : black;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => {
+                            SettingsState.toggle-startup();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+

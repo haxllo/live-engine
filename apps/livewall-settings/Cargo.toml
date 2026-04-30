@@ -8,7 +8,11 @@ publish = false
 [dependencies]
 livewall-control = { path = "../../crates/livewall-control" }
 serde_json.workspace = true
+slint.workspace = true
 thiserror.workspace = true
+
+[build-dependencies]
+slint-build = "1.6"
 
 [lints]
 workspace = true
